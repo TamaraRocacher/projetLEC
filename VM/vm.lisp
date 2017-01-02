@@ -1,118 +1,99 @@
 (require "fctVM.lisp")
 
-;; Création
+;; Création de la vm
+(defun make-vm (vm &optional taille )
+  (if (not (null taille))
+    (set-pile vm taille)
+    (set-pile vm)))https://github.com/LuckyBanana/Compilateur-LISP
 
-(defun make-vm (&optional (nom 'mv) (tmem 10000) (aff ()))
-  (set-prop nom :nom nom)
-  (set-prop nom :R0 0)
-  (set-prop nom :R1 0)
-  (set-prop nom :R2 0)
-  (set-prop nom :R3 0)
-  (set-prop nom :BP 100)
-  (set-prop nom :SP 100)
-  (set-prop nom :VP 1)
-  (set-prop nom :FP 0)
-  (set-prop nom :DPP 0)
-  (set-prop nom :DE 0)
-  (set-prop nom :DPG 0)
-  (reset-memoire nom tmem)
-  (if (not (null aff)) (print-machine nom))
-  )
-
-;; Vidage mémoire
-
-(defun memres-vm (&optional (nom 'mv) (tmem 10000))
-  (let ((taille (max tmem 1000)))
-    (set-taille nom taille)
-    (set-prop nom :memtab (make-array taille))
-    (set-pc nom (- taille 1))
-    (set-lc nom (- taille 1))
-    (set-prop nom :etiq (make-hash-table :size taille))
-    (set-prop nom :etiqNR (make-hash-table :size taille))
-    (set-etiqNR nom 'nb 0)
-    )
-  )
-
-
-;; Chargement de code dans la mémoire d'une machine virtuelle.
-
-(defun load-vm (mv asm)
-  (let ((exp asm)
-	(inst (car asm))
-	(etiqLoc (make-hash-table :size (get-taille mv)))
-	(etiqLocNR (make-hash-table :size (get-taille mv))))
-    (set-hash etiqLocNR 'nb 0)
-    (loop while exp
-	  do
-	  (case (car inst)
-	    ('@ (case-adr mv exp inst etiqLoc etiqLocNR))
-	    ('VARG (case-varg mv exp inst))
-	    ('JSR (case-saut mv exp inst))
-	    ('FEntry (case-fonction mv exp inst))
-	    (otherwise (case-other mv exp inst etiqLoc etiqLocNR))
-	    )
-	  do (setf exp (cdr exp))
-	  do (setf inst (car exp))
-	  )
-    )
-  )
-
-
-;; Lancement d'une machine virtuelle.
-
-(defun run-vm (&optional (nom 'mv) (aff ()))
-  (set-mem-lc nom '(HALT))
-  (let ((nbfun 0))
-  (loop while (mv-running nom)
-	do
-	(if (in-fun nom)
-	    (saut-fonction nom nbfun)
-	  (exec-inst nom (get-mem-pc nom) aff)
-	  )
-	)
-  )
-  (if (mv-overflow nom)
-      (error "Débordement de pile")
-    (get-reg nom :R0))
-  )
-
-(defun exec-inst (mv exp &optional (aff ()))
-  (let ((inst (car exp))
-	(param (cadr exp))
-	(param-bis (caddr exp)))
-    (if (null exp)
-	(mv-nop mv)
-      (case inst
-	('MOVE (mv-move mv param param-bis))
-	('ADD (mv-add mv param param-bis))
-	('SUB (mv-sub mv param param-bis))
-	('MULT (mv-mult mv param param-bis))
-	('DIV (mv-div mv param param-bis))
-	('PUSH (mv-push mv param))
-	('POP (mv-pop mv param))
-	('INCR (mv-inc mv param))
-	('DECR (mv-dec mv param))
-	('JMP  (mv-jmp mv param))
-	('CMP  (mv-cmp mv param param-bis))
-	('JEQ (mv-jeq mv param))
-	('JL (mv-jl mv param))
-	('JLE (mv-jle mv param))
-	('JG (mv-jg mv param))
-	('JGE (mv-jge mv param))
-	('JNE (mv-jne  mv param))
-	('JSR (mv-jsr mv param))
-	('RTN (mv-rtn mv))
-	('FENTRY (mv-nop mv))
-	('FEXIT (mv-nop mv))
-	('ERR (mv-err mv))
-	(otherwise (mv-err mv exp))
-	)
+;;Création/définition de la pile (taille par défaut 1000)
+(defun set-pile (vm &optional taille )
+  (cond
+    ((not (null taille))
+      (setf (get vm 'pile) (make-array taille :initial-element 0))
+      (set-adr vm 3 (- taille 1)) ;;PC
+      (set-adr vm 4 (- taille 1)) ;;CC 
       )
-    (if (not (null aff)) (format t "~S~%" (get-mem-pc mv)))
-    (dec-pc mv)
+    (T
+      (setf (get vm 'pile) (make-array 1000 :initial-element 0))
+      (set-adr vm 3 999) ;;PC
+      (set-adr vm 4 999) ;;CC   
+          )
     )
-  )
-
+ 
+  (set-adr vm 0 8) ;BP
+  (set-adr vm 1 8) ;FP
+  (set-adr vm 2 8) ;SP
+ 
+  ;;Flags 
+  ;;(set-adr vm 5 0) ;FLT
+  ;;(set-adr vm 6 0) ;FEQ
+  ;;(set-adr vm 7 0) ;FGT
+  
+  ;;(setf (get vm 'etiquettes_resolues) (make-hash-table))
+  ;;(setf (get vm 'references_avant) (make-hash-table))
+  vm
+)
+  
+ ;;Lecture et analyse par cas du code pseudo-assembleur (compile)
+  (defun read-asm (vm)
+  ;;tant que le compteur de prog n'est pas a 0 
+  (loop while (not (eq (get-adr vm (aref (get vm 'pile) 3)) 0))
+    do
+    (let ((op (get-adr vm (aref (get vm 'pile) 3))))
+      (if (atom op)
+        (return)
+        (cond
+          ((eq (car op) :stack)
+            (empiler vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :call)
+           
+            (vmcall vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :const)
+            (vmconst vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :var)
+            (vmvar vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :set-var)
+            (vmset-var vm) ;(cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :rtn)
+            (vmrtn vm)
+            )
+          ;;;; !!!!
+          ((eq (car op) :skip)
+            (vmskip vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :skipnil)
+            (vmskipnil vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :skiptrue)
+            (vmskiptrue vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :jump)
+            (vmjump vm (cadr op))
+            (vm-- vm 3) ; ?
+            )
+          ((eq (car op) :load)
+            (vmload vm (cadr op))
+            (vm-- vm 3)
+            )
+          ((eq (car op) :store)
+            (vmstore vm (cadr op))
+            (vm-- vm 3)
+            )))))
+  (get-SP-value vm))
 
 ;; Affichage de tous les paramètres d'une machine virtuelle.
 
