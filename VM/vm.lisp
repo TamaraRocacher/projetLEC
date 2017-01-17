@@ -1,13 +1,12 @@
-(require "fctVM.lisp")
-
+(require "vm-fct.lisp")
 ;; Création de la vm
 (defun make-vm (vm &optional taille )
   (if (not (null taille))
-    (set-pile vm taille)
-    (set-pile vm)))https://github.com/LuckyBanana/Compilateur-LISP
+    (set-stack vm taille)
+    (set-stack vm)))
 
 ;;Création/définition de la pile (taille par défaut 1000)
-(defun set-pile (vm &optional taille )
+(defun set-stack (vm &optional taille )
   (cond
     ((not (null taille))
       (setf (get vm 'pile) (make-array taille :initial-element 0))
@@ -25,15 +24,29 @@
   (set-adr vm 1 8) ;FP
   (set-adr vm 2 8) ;SP
  
-  ;;Flags 
-  ;;(set-adr vm 5 0) ;FLT
-  ;;(set-adr vm 6 0) ;FEQ
-  ;;(set-adr vm 7 0) ;FGT
   
-  ;;(setf (get vm 'etiquettes_resolues) (make-hash-table))
-  ;;(setf (get vm 'references_avant) (make-hash-table))
   vm
 )
+  
+  (defun load-asm (vm code)
+  (let ((index (get-CC vm)))
+    (if
+        (atom code)
+        (progn 
+          (set-adr vm index code)
+          (vm-- vm 4)
+          (vm++ vm 2)
+          )
+        (progn 
+          (set-adr vm index (car code))
+          (vm-- vm 4)
+          (vm++ vm 2)
+          (load-asm vm (cdr code))
+          )
+        ))
+  (values))
+  
+  
   
  ;;Lecture et analyse par cas du code pseudo-assembleur (compile)
   (defun read-asm (vm)
@@ -45,66 +58,77 @@
         (return)
         (cond
           ((eq (car op) :stack)
+            (empiler vm (+ 2 (cadr op))) ;nombre de parametre + 3 (oSP + oFP + @ ret)
+            (set-adr vm 1 (- (get-SP vm) 1))
+            (vm-- vm 3)
+            )
+          
+          ((eq (car op) :call)
+            (cond
+              ((is-operator (cadr op)) (operator vm (cadr op)))
+              ((is-lisp-form vm (cadr op)) (lisp-form vm (cadr op)))
+            )
+            (vm-- vm 3)
+            )
+          
+          ((eq (car op) :const)
             (empiler vm (cadr op))
             (vm-- vm 3)
             )
-          ((eq (car op) :call)
-           
-            (vmcall vm (cadr op))
-            (vm-- vm 3)
-            )
-          ((eq (car op) :const)
-            (vmconst vm (cadr op))
-            (vm-- vm 3)
-            )
+          
           ((eq (car op) :var)
-            (vmvar vm (cadr op))
+            (empiler vm (get-adr vm (FP vm '- (+ 1 (- (get-FP-value vm) (cadr op))))))
             (vm-- vm 3)
             )
+          
           ((eq (car op) :set-var)
-            (vmset-var vm) ;(cadr op))
+            (set-adr vm (get-adr vm (FP vm '- (+ 1 (- (get-FP-value vm) (cadr op))))) (depiler vm)) 
             (vm-- vm 3)
             )
+          
           ((eq (car op) :rtn)
-            (vmrtn vm)
+            (let ((val (depiler vm)) (nbpar (depiler vm)) (adret (depiler vm)) (osp (depiler vm)))
+              (set-fp vm (- osp 1))
+              (set-sp vm (- osp (- nbpar 3)))
+              (empiler vm val)
+              (set-adr vm 3 (- adret 1)))
             )
-          ;;;; !!!!
+          
           ((eq (car op) :skip)
             (vmskip vm (cadr op))
             (vm-- vm 3)
             )
+          
           ((eq (car op) :skipnil)
             (vmskipnil vm (cadr op))
             (vm-- vm 3)
             )
+          
           ((eq (car op) :skiptrue)
             (vmskiptrue vm (cadr op))
             (vm-- vm 3)
             )
-          ((eq (car op) :jump)
-            (vmjump vm (cadr op))
-            (vm-- vm 3) ; ?
-            )
+          
           ((eq (car op) :load)
-            (vmload vm (cadr op))
+            (empiler vm (get-adr vm (cadr op)))
             (vm-- vm 3)
             )
           ((eq (car op) :store)
-            (vmstore vm (cadr op))
+            (set-adr vm (cadr op) (depiler vm))
             (vm-- vm 3)
             )))))
   (get-SP-value vm))
 
 ;; Affichage de tous les paramètres d'une machine virtuelle.
 
-(defun print-vm (&optional (nom 'mv))
-  (format t "~%Machine virtuelle : ~%--- Nom : ~S ~%--- Taille : ~D" nom (get-taille nom))
-  (format t "~%- Registres : ~%--- R0 : ~D ~%--- R1 : ~D ~%--- R2 : ~D ~%--- R3 : ~D"
-	  (get-reg nom :R0) (get-reg nom :R1) (get-reg nom :R2) (get-reg nom :R3))
-  (format t "~%- Pointeurs : ~%--- BP : ~D ~%--- SP : ~D ~%--- VP : ~D ~%--- FP : ~D"
-	  (get-prop nom :BP) (get-prop nom :SP) (get-prop nom :VP) (get-prop nom :FP))
-  (format t "~%- Drapeaux : ~%--- DPP : ~D ~%--- DE : ~D ~%--- DPG : ~D"
-	  (get-prop nom :DPP) (get-prop nom :DE) (get-prop nom :DPG))
-  (format t "~%- Compteurs : ~%--- PC : ~D ~%--- LC : ~D ~%"
-	  (get-pc nom) (get-lc nom))
-  )
+(defun print-vm (vm)
+  (print 'COUNTERS)
+  (print (list :BP (get-adr vm 0)))
+  (print (list :FP (get-adr vm 1)))
+  (print (list :SP (get-adr vm 2)))
+  (print (list :PC (get-adr vm 3)))
+  (print (list :CC (get-adr vm 4)))
+  (print 'PILE) 
+  (print (get-pile vm))
+  (values)  
+  ) 

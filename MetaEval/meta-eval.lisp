@@ -34,22 +34,22 @@
     ((get-defun (car expr))
      (let ((fun (get-defun (car expr))))
        (meval-body (cddr fun)
-                   (make-env (cadr fun)
+                   (make-env (car (cdr fun))
                              (meval-args (cdr expr) env)
                              ())))
      )
     
     ((eq 'defun (car expr))
-     (setf (get-defun (cadr expr))
+     (setf (get-defun (car (cdr expr)))
            `(lambda ,@(cddr expr)))
      )
     
     ((eq 'quote (car expr))
-     cadr expr)
+     car (cdr expr))
     
     ;;Structures de contrôle
     ((eq 'if (car expr))
-     (if (meval (cadr expr) env)
+     (if (meval (car (cdr expr)) env)
          (meval (caddr expr) env)
          (meval (cadddr expr)env))
      )
@@ -66,3 +66,5 @@
    )
   )
     
+    
+(meval '(defun fibo (n) (if (< n 2) n (+ (fibo (- n 1)) (fibo (- n 2))))))
